@@ -1,0 +1,261 @@
+---
+title: "Customer Segmentation Decision"
+author: "Ibeh Amaka"
+date: '2023-10-01'
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+Targeted Customer Campaigns
+Retail businesses want a targeted marketing campaign to increase sales and customer engagement. They have customer data, including annual income and spending scores. They need to decide how to segment their customer base effectively for the marketing campaign
+
+#knitr::opts_chunk$set(echo = TRUE)
+#install all packages used
+# install.packages("readr")
+# install.packages("tidyverse")
+# install.packages("tidyr")
+# install.packages("ggplot2")
+# install.packages("dylyer")
+# install.packages("data.table")
+# install.packages("cluster")
+# install.packages("plotly")
+
+Load the packages
+```{r setup, include=FALSE}
+library(readr)
+library(tidyverse)
+library(tidyr)
+library(data.table)
+library(dplyr) 
+library(ggplot2)
+library(cluster)
+library(plotly)
+library(fpc)
+```
+load the dataset
+
+```{r}
+mall <- read_csv("Data/Mall_Customers.csv")
+```
+Performing EDA for this dataset
+
+```{r}
+#EDA
+dim(mall)
+##contains 200 observation and 5 variables
+head(mall,10)
+tail(mall,10)
+sum(is.na(mall))
+str(mall)
+#remove white spaces from column names
+colnames(mall) <- gsub(" ", "", colnames(mall))
+##rename columns
+str(mall)
+mall <- mall %>%
+  rename(Gender = Genre,
+                   AnnualIncome = `AnnualIncome(k$)`,
+                   SpendingScore = `SpendingScore(1-100)`)
+```
+
+```{r}
+#Get the summary of the data however we do not need customerid
+#i will need this at the end
+mall_new = mall[1:3]
+mall = mall[-1]
+summary(mall)
+##check for categorical varaible
+#cat <- sapply(mall, is.character)
+#cat_name <- names(cat[cat])
+#checking for outliers
+
+```
+Lets check for outliers using box plot
+
+
+```{r}
+numeric_data <- mall[,sapply(mall, is.numeric)]
+boxplot(numeric_data, 
+        main="Box Plot to Check for Outliers",
+          ylab="Data Values")
+
+```
+from the box plot we can see that there is an outlier in annual income
+since,we have one outlier in annual income,we neglect it as it may be the person with higher annual income.
+
+```{r}
+gender_counts <- table(mall$Gender)
+barplot(gender_counts, 
+        main = "Gender Distribution",
+        xlab = "Gender",
+        ylab = "Count",
+        col = "skyblue",  # Bar color
+        names.arg = names(gender_counts))  
+```
+from the results we see that females are more than males
+
+Calculate the kernel density estimate
+```{r}
+density_est <- density(mall$AnnualIncome)
+
+# Create a KDE plot using the plot() function
+plot(density_est, 
+     main = "KDE Plot of Annual Income",
+     xlab = "Annual Income",
+     ylab = "Density")
+```
+The data is most concentrated at 60 which is the peak, the tail is from 120 to 150 where data are less concentrated.
+
+Lets see a scattered plot
+Scatter plot for the Annual Income & SpendingScore by gender
+
+```{r}
+ggplot(mall, aes(x = AnnualIncome, y = SpendingScore, color = Gender)) +
+  geom_point() +
+  labs(title = "Income vs. Score by Gender", x = "Annual Income", y = "Spending Score") +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(20, 100, by = 20)) +
+  scale_y_continuous(breaks = seq(20, 100, by = 20))
+```
+We can see that most of the customer data points lies at annual income(40-70) and spending score (40-60).
+This shows that their income is corresponding to their spending score
+
+#scatter plot for age and spending score
+```{r}
+ggplot(mall, aes(x= Age, y=SpendingScore,colour=Gender))+
+  geom_point() +
+  labs(title= "Age vs Score by Gender", x = "Age", y = "spending Score") +
+  theme_minimal () +
+  scale_x_continuous(breaks = seq(10, 100, by = 10)) +
+  scale_y_continuous(breaks = seq(20, 100, by = 20))
+```
+We interpret that the age (40-60) of having spending score around (20-60),
+the age (20-40) of having higher spending score around (40-100) and the age (60-70) 
+of having balanced spending score around (40-60) respectively . 
+
+DATA PREPROCESSING
+
+changing gender to 1 and 0 male = 1 female is 0
+
+```{r}
+mall$Gender <- ifelse(mall$Gender =="Male", 1, 0)
+```
+Variables often have different units and scales. For example, "AnnualIncome" might be in thousands of 
+dollars, while "SpendingScore" could be on a scale from 0 to 100. 
+Scaling ensures that variables are on a similar scale, making it easier to compare and analyze them.
+```{r}
+scale_col <- c("AnnualIncome", "SpendingScore")
+mall[scale_col] <- scale(mall[scale_col])
+head(mall,5)
+```
+Decision Steps:
+Data Analysis:
+Analyze the customer data, including annual income and spending score, to understand the distribution and characteristics of the customer base.
+Segmentation Method:
+Decide on a segmentation method. In this case, the business will use K-means clustering to group customers based on their annual income and spending score
+
+we will use our target features which is annual income and spending score
+
+```{r}
+new_mall = mall[3:4]
+```
+Number of Clusters:
+Decide on the number of clusters (segments) to create. For this, i will run the Elbow Method to determine the optimal number of clusters.
+
+```{r}
+wcss <- numeric(10)  # Initialize a vector to store WCSS values
+for (i in 1:10) {
+  kmeans_model <- kmeans(new_mall, centers = i)
+  wcss[i] <- kmeans_model$tot.withinss
+}
+wcss
+plot(1:10, wcss, type = "b", main = "Elbow Method", xlab = "Number of Clusters", ylab = "WCSS")
+```
+Another method to check the accuracy of the k-means
+```{r}
+gap_stat <- clusGap(new_mall, FUN = kmeans, nstart = 25, K.max = 10)
+plot(gap_stat, main = "Gap Statistics")
+```
+Want to be sure of our cluster
+```{r}
+silhouette_scores <- numeric(10)  # Initialize a vector to store silhouette scores
+for (i in 2:10) {
+  kmeans_model <- kmeans(new_mall, centers = i)
+  silhouette_scores[i] <- cluster.stats(dist(new_mall), kmeans_model$cluster)$avg.silwidth
+}
+plot(2:10, silhouette_scores[2:10], type = "b", main = "Silhouette Method", xlab = "Number of Clusters", ylab = "Silhouette Score")
+```
+From the Plot above we see that the k-means is 5
+Which is the best fit for the clusters
+```{r}
+optimal_clusters = 5
+kmeans_model <- kmeans(new_mall, centers = optimal_clusters)
+print(kmeans_model)
+# Run K-means clustering with the chosen number of clusters
+final_kmeans_model <- kmeans(new_mall, centers = optimal_clusters)
+# Get cluster assignments for each data point
+cluster_assignments <- final_kmeans_model$cluster
+##add the predicted values to the features
+new_mall$cluster <- cluster_assignments 
+ 
+```
+Visualize the model
+```{r}
+centroids <- aggregate(new_mall[c("SpendingScore", "AnnualIncome")], by = list(cluster = cluster_assignments), FUN = mean)
+clr <- c("red", "green", "blue", "orange", "purple")
+# Create a scatter plot of clusters with centroids
+ggplot(new_mall, aes(x = AnnualIncome, y = SpendingScore, color = factor(cluster))) +
+  geom_point(size = 3) +
+  geom_point(data = centroids, aes(x = SpendingScore, y = AnnualIncome), color = "black", size = 5, shape = 4) +
+  labs(title = "K-means Clustering", x = "AnnualIncome", y = "Spending Score") +
+  scale_color_manual(values = clr) +  # Use the same cluster colors as needed
+  theme_minimal()
+```
+Cluster Interpretation:
+cluster 1 (red) The data points in this cluster represents the customers with an low annual income who tends to have low spending (-2 to -0.5). This customers are balanced customers.Thy keep to budject based on their income leavel. Target for discounts
+
+custer 2 (green). The data points in this cluster represents the customers with high income that has low spending (-2 to -1). They have high income but spend less, how do we market our products to make them spend more since they still have high disposable income. Target for promotions
+
+cluster 3 (blue). The data points in this cluster represents the customers that have average income and avaerage spending. This are the balanced ones (-0.5 to 0.5). Target for promotions
+
+cluster 4 (orange). The data points in this cluster represents the customers with high income and high spending.
+(1 to 2). This are the target for  premium products
+
+#cluster 5 (purple) The data points in this cluster represents the customers with low income and high spending
+(1 to 2). (Target for promotions)
+Marketing Strategy:
+Based on the cluster interpretation, I decide on a marketing strategy for each segment. 
+High-income customers should receive exclusive offers on premium products.
+Moderate-income customers should receive promotions and loyalty rewards.
+Low-income customers should receive discounts and incentives.
+
+Now is to select the customers based on customer ID for targeted marketing
+
+```{r}
+# Now, you can use rbind without errors
+combined_data <- cbind(mall_new,new_mall)
+```
+now filter customers in cluster 1
+```{r}
+cluster_1_customers <- combined_data %>%
+  filter(cluster == 1)
+head(cluster_1_customers,5)
+#cluster 1 is target for discount
+cluster_2_customers <- combined_data %>%
+  filter(cluster == 2)
+head(cluster_2_customers,5)
+#cluster 2 is target for promotions
+cluster_3_customers <- combined_data %>%
+  filter(cluster == 3)
+head(cluster_3_customers,5)
+#cluster 3 is target for promotions
+cluster_4_customers <- combined_data %>%
+  filter(cluster == 4) 
+head(cluster_4_customers,5)
+#cluster 4 is target for premium products
+cluster_5_customers <- combined_data %>%
+  filter(cluster == 5)
+head(cluster_5_customers,5)
+#cluster 5 is target for promotions
+
+```
